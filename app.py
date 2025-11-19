@@ -1,92 +1,108 @@
 import streamlit as st
-import sqlite3
 import os
-import cv2
+from PIL import Image
 import numpy as np
-from datetime import datetime
 import pandas as pd
+from datetime import datetime
 from deepface import DeepFace
 
 from db import init_db, add_student, fetch_students, record_attendance, get_attendance
 
-st.set_page_config(page_title="AI Attendance PRO", layout="wide")
+st.set_page_config(page_title="AI Attendance System", layout="wide")
+
+# Initialize DB
 init_db()
 
 PASSWORD = "admin123"
 
-# Sidebar login
+# Sidebar Login
 st.sidebar.title("🔐 Admin Login")
 password = st.sidebar.text_input("Enter Password", type="password")
 
 if password != PASSWORD:
-    st.warning("Enter correct admin password to continue")
+    st.warning("Enter correct admin password")
     st.stop()
 
-st.sidebar.success("Logged in Successfully!")
 menu = st.sidebar.radio("Menu", ["Register Student", "Attendance", "Dashboard"])
+st.sidebar.success("Logged in Successfully!")
 
-# ------------------------------------------
-# Verify Faces (DeepFace)
-# ------------------------------------------
-def verify_face(img1, img2):
+# -------------------------------------------
+# Face Verification using DeepFace
+# -------------------------------------------
+def verify_face(img1_path, img2_path):
     try:
-        result = DeepFace.verify(img1_path=img1, img2_path=img2, enforce_detection=False)
+        result = DeepFace.verify(
+            img1_path=img1_path,
+            img2_path=img2_path,
+            enforce_detection=False
+        )
         return result["verified"]
     except:
         return False
 
-# ------------------------------------------
+
+# -------------------------------------------
 # Register Student
-# ------------------------------------------
+# -------------------------------------------
 if menu == "Register Student":
     st.title("🧑‍🎓 Register New Student")
 
     name = st.text_input("Student Name")
-    img = st.file_uploader("Upload Student Photo", type=["jpg", "jpeg", "png"])
+    uploaded_img = st.file_uploader("Upload Student Photo", type=["jpg", "png", "jpeg"])
 
-    if img and name:
-        path = f"student_images/{name}.jpg"
-        with open(path, "wb") as f:
-            f.write(img.getbuffer())
+    if uploaded_img and name:
+        os.makedirs("student_images", exist_ok=True)
 
-        add_student(name, path)
-        st.success(f"Student '{name}' Registered!")
+        save_path = f"student_images/{name}.jpg"
+        with open(save_path, "wb") as f:
+            f.write(uploaded_img.getbuffer())
 
-# ------------------------------------------
+        add_student(name, save_path)
+        st.success(f"Student '{name}' registered!")
+
+
+# -------------------------------------------
 # Attendance
-# ------------------------------------------
+# -------------------------------------------
 elif menu == "Attendance":
-    st.title("📷 Take Picture to Mark Attendance")
+    st.title("📷 Mark Attendance")
 
     students = fetch_students()
 
-    cam = st.camera_input("Take a picture")
+    captured = st.camera_input("Take a picture to mark attendance")
 
-    if cam:
-        img_bytes = cam.getvalue()
-        frame = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if captured:
+        img = Image.open(captured)
+        os.makedirs("temp", exist_ok=True)
 
-        user_img_path = "temp_user.jpg"
-        cv2.imwrite(user_img_path, frame)
+        user_img_path = "temp/user.jpg"
+        img.save(user_img_path)
 
-        matched = False
+        marked = False
 
         for stu in students:
-            student_id, name, db_img_path = stu
+            student_id, student_name, stored_path = stu
 
-            if verify_face(user_img_path, db_img_path):
+            if verify_face(user_img_path, stored_path):
                 now = datetime.now()
-                record_attendance(student_id, now.strftime("%Y-%m-%d"), now.strftime("%H:%M"), "Present")
-                st.success(f"Attendance Marked for {name}")
-                matched = True
+                record_attendance(
+                    student_id,
+                    now.strftime("%Y-%m-%d"),
+                    now.strftime("%H:%M:%S"),
+                    "Present"
+                )
+
+                st.success(f"Attendance marked for **{student_name}**")
+                marked = True
                 break
 
-        if not matched:
-            st.error("Face Not Recognized!")
+        if not marked:
+            st.error("Face not recognized!")
 
-# ------------------------------------------
+
+# -------------------------------------------
 # Dashboard
-# ------------------------------------------
+# -------------------------------------------
 elif menu == "Dashboard":
     st.title("📊 Attendance Dashboard")
 
@@ -96,4 +112,5 @@ elif menu == "Dashboard":
     st.dataframe(df)
 
     st.subheader("Attendance Count")
-    st.bar_chart(df["Name"].value_counts())
+    if not df.empty:
+        st.bar_chart(df["Name"].value_counts())
