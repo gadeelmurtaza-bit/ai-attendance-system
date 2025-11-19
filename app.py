@@ -1,16 +1,13 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import os
 from PIL import Image
+import numpy as np
 from io import BytesIO
 import zipfile
-
 from insightface.app import FaceAnalysis
-from db import add_student, init_db, get_all_students  # Your DB functions
 
-# For camera input
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+from db import add_student, init_db, get_all_students
 
 # -----------------------------------------
 # Initialize Database
@@ -18,7 +15,7 @@ from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 init_db()
 
 # -----------------------------------------
-# Load Face Recognition Model
+# Load InsightFace Model
 # -----------------------------------------
 st.text("Loading Face Recognition Model...")
 model = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
@@ -26,7 +23,7 @@ model.prepare(ctx_id=0)
 st.success("Face Recognition Model Loaded!")
 
 # -----------------------------------------
-# Ensure folder exists
+# Ensure folder exists safely
 # -----------------------------------------
 def ensure_folder(folder_path):
     if os.path.exists(folder_path):
@@ -39,19 +36,16 @@ def ensure_folder(folder_path):
 ensure_folder("student_images")
 
 # -----------------------------------------
-# Background
+# Background Section
 # -----------------------------------------
-st.markdown(
-    """
-    <h1 style='text-align:center;color:#0077cc;'>Smart Student Registration & Attendance System</h1>
-    <p style='text-align:center;'>Upload students, register new ones, and take attendance using AI-powered Face Recognition.</p>
-    <hr>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("""
+<h1 style='text-align:center;color:#0077cc;'>Smart Student Registration & Attendance System</h1>
+<p style='text-align:center;'>Upload students, register new ones, and take attendance using AI-powered Face Recognition.</p>
+<hr>
+""", unsafe_allow_html=True)
 
 # -----------------------------------------
-# Get Face Embedding
+# Function: Get Face Embedding
 # -----------------------------------------
 def get_embedding(img: Image.Image):
     np_img = np.array(img)
@@ -70,6 +64,7 @@ menu = st.sidebar.radio("Menu", ["Bulk Registration", "Add Student", "Take Atten
 # =========================================
 if menu == "Bulk Registration":
     st.header("📂 Bulk Student Registration")
+
     uploaded_file = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx"])
     photo_zip = st.file_uploader("Upload ZIP of Photos", type=["zip"])
 
@@ -94,6 +89,7 @@ if menu == "Bulk Registration":
                 name = str(row["Name"])
                 roll = str(row["Roll Number"])
                 photo_name = str(row["Photo Filename"])
+
                 img_path = f"student_images/{photo_name}"
 
                 if os.path.exists(img_path):
@@ -117,6 +113,7 @@ if menu == "Bulk Registration":
 # =========================================
 elif menu == "Add Student":
     st.header("➕ Register New Student")
+
     name = st.text_input("Student Name")
     roll = st.text_input("Roll Number")
     photo = st.file_uploader("Upload Student Photo (JPG)", type=["jpg", "jpeg"])
@@ -134,17 +131,19 @@ elif menu == "Add Student":
                 ensure_folder("student_images")
                 save_path = f"student_images/{roll}.jpg"
                 img.save(save_path)
+
                 add_student(f"{name} ({roll})", save_path, embedding.astype(np.float32))
                 st.success(f"Student Registered: {name} ({roll})")
 
 # =========================================
-# 3️⃣ ATTENDANCE
+# 3️⃣ ATTENDANCE (Photo Upload)
 # =========================================
 elif menu == "Take Attendance":
-    st.header("📸 Take Attendance")
+    st.header("📸 Take Attendance (Upload Live Photo)")
 
-    # Load students from DB
     db_students = get_all_students()
+
+    # Initialize attendance table
     attendance_df = pd.DataFrame({
         "Name": [s["name"] for s in db_students],
         "Status": ["Absent"] * len(db_students)
@@ -152,7 +151,7 @@ elif menu == "Take Attendance":
     st.subheader("📋 Attendance Table")
     st.dataframe(attendance_df)
 
-    # Face Matching Function
+    # Match face function
     def match_face(live_embedding, db_students, threshold=0.6):
         for student in db_students:
             db_emb = student["embedding"]
@@ -161,25 +160,32 @@ elif menu == "Take Attendance":
                 return student["name"]
         return None
 
-    # Video Transformer
-    class FaceAttendance(VideoTransformerBase):
-        def __init__(self):
-            self.marked_students = set()
+    # Upload live photo
+    live_photo = st.file_uploader("Upload Live Photo", type=["jpg", "jpeg", "png"])
 
-        def transform(self, frame):
-            img = frame.to_ndarray(format="bgr24")
-            faces = model.get(img)
-            if len(faces) > 0:
-                embedding = faces[0].embedding
-                matched_name = match_face(embedding, db_students)
-                if matched_name:
-                    self.marked_students.add(matched_name)
-            return frame
+    if live_photo:
+        img = Image.open(live_photo)
+        st.image(img, caption="Uploaded Image", use_column_width=True)
 
-    ctx = webrtc_streamer(key="attendance", video_transformer_factory=FaceAttendance)
+        live_embedding = get_embedding(img)
+        if live_embedding is None:
+            st.error("No face detected!")
+        else:
+            matched_name = match_face(live_embedding, db_students)
+            if matched_name:
+                attendance_df.loc[attendance_df["Name"] == matched_name, "Status"] = "Present"
+                st.success(f"{matched_name} marked as Present!")
+            else:
+                st.warning("No matching student found in database.")
 
-    if ctx.video_transformer:
-        marked = ctx.video_transformer.marked_students
-        if marked:
-            attendance_df.loc[attendance_df["Name"].isin(marked), "Status"] = "Present"
+            st.subheader("Updated Attendance Table")
             st.dataframe(attendance_df)
+
+            # Download CSV
+            csv = attendance_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Attendance CSV",
+                data=csv,
+                file_name="attendance.csv",
+                mime="text/csv"
+            )
