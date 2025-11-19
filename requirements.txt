@@ -1,6 +1,7 @@
 streamlit
-deepface==0.0.91
-opencv-python-headless==4.8.1.78
+insightface==0.7.3
+onnxruntime
 numpy
 pandas
 Pillow
+scikit-learn
