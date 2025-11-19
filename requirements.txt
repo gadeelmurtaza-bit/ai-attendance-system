@@ -1,6 +1,6 @@
 streamlit
-opencv-python-headless
+deepface==0.0.91
+opencv-python-headless==4.8.1.78
 numpy
 pandas
-deepface
 Pillow
