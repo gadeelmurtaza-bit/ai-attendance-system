@@ -1,12 +1,8 @@
-import face_recognition
-import cv2
-import numpy as np
+from deepface import DeepFace
 
-def encode_face(image_path):
-    img = cv2.imread(image_path)
-    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    enc = face_recognition.face_encodings(rgb)
-
-    if enc:
-        return enc[0]
-    return None
+def verify_face(img1, img2):
+    try:
+        result = DeepFace.verify(img1_path=img1, img2_path=img2, enforce_detection=False)
+        return result["verified"]
+    except:
+        return False
