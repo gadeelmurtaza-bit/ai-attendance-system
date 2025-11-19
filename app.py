@@ -24,9 +24,18 @@ model.prepare(ctx_id=0)
 st.success("Face Recognition Model Loaded!")
 
 # -----------------------------------------
-# Create folder for student images if not exists
+# Function: Ensure folder exists safely
 # -----------------------------------------
-os.makedirs("student_images", exist_ok=True)
+def ensure_folder(folder_path):
+    if os.path.exists(folder_path):
+        if not os.path.isdir(folder_path):
+            os.remove(folder_path)  # Remove file with same name
+            os.makedirs(folder_path)
+    else:
+        os.makedirs(folder_path)
+
+# Ensure student_images folder exists
+ensure_folder("student_images")
 
 # -----------------------------------------
 # Background Section
@@ -65,6 +74,9 @@ if menu == "Bulk Registration":
     photo_zip = st.file_uploader("Upload ZIP of Photos", type=["zip"])
 
     if uploaded_file and photo_zip:
+        # Ensure folder exists
+        ensure_folder("student_images")
+
         # Extract ZIP to student_images folder
         with zipfile.ZipFile(BytesIO(photo_zip.read())) as zip_ref:
             zip_ref.extractall("student_images/")
@@ -124,7 +136,7 @@ elif menu == "Add Student":
                 st.error("No face detected! Try another photo.")
             else:
                 # Ensure folder exists
-                os.makedirs("student_images", exist_ok=True)
+                ensure_folder("student_images")
 
                 # Save image
                 save_path = f"student_images/{roll}.jpg"
