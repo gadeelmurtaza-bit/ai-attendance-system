@@ -1,11 +1,10 @@
 import streamlit as st
-import cv2
+from PIL import Image
 import face_recognition
 import numpy as np
 import pandas as pd
 import os
 from datetime import datetime
-from PIL import Image
 
 st.set_page_config(page_title="AI Attendance System", layout="wide")
 st.title("📸 AI Attendance System")
@@ -16,27 +15,21 @@ if not os.path.exists('students_images'):
 if not os.path.exists('attendance.csv'):
     pd.DataFrame(columns=['Name', 'Date', 'Time']).to_csv('attendance.csv', index=False)
 
-# --- Load student images ---
+# --- Load student images and encode ---
 images = []
 student_names = []
+
 for file in os.listdir('students_images'):
-    curImg = cv2.imread(f'students_images/{file}')
-    images.append(curImg)
-    student_names.append(os.path.splitext(file)[0].upper())
+    img = Image.open(f'students_images/{file}')
+    img_array = np.array(img)
+    encoding = face_recognition.face_encodings(img_array)
+    if encoding:
+        images.append(encoding[0])
+        student_names.append(os.path.splitext(file)[0].upper())
 
-# --- Encode faces ---
-def find_encodings(images):
-    encode_list = []
-    for img in images:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        encodes = face_recognition.face_encodings(img)
-        if encodes:
-            encode_list.append(encodes[0])
-    return encode_list
+known_encodings = images
 
-known_encodings = find_encodings(images)
-
-# --- Attendance marking ---
+# --- Attendance marking function ---
 def mark_attendance(name):
     df = pd.read_csv('attendance.csv')
     now = datetime.now()
@@ -57,34 +50,29 @@ if choice == "Upload Student Images":
         for file in uploaded_files:
             image = Image.open(file)
             image.save(f'students_images/{file.name}')
-        st.success("Images uploaded successfully! Refresh the app to load new students.")
+        st.success("✅ Images uploaded successfully! Refresh the app to load new students.")
 
 # --- Mark attendance from uploaded photo ---
 elif choice == "Mark Attendance":
     uploaded_file = st.file_uploader("Upload a student photo to mark attendance", type=['jpg','jpeg','png'])
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
-        frame = np.array(image)
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-        facesCurFrame = face_recognition.face_locations(frame)
-        encodesCurFrame = face_recognition.face_encodings(frame, facesCurFrame)
-
-        if len(encodesCurFrame) == 0:
+        img_array = np.array(image)
+        encodings = face_recognition.face_encodings(img_array)
+        if len(encodings) == 0:
             st.warning("No face detected in the uploaded image!")
         else:
-            for encodeFace, faceLoc in zip(encodesCurFrame, facesCurFrame):
-                matches = face_recognition.compare_faces(known_encodings, encodeFace)
-                faceDis = face_recognition.face_distance(known_encodings, encodeFace)
-                if len(faceDis) > 0:
-                    matchIndex = np.argmin(faceDis)
-                    if matches[matchIndex]:
-                        name = student_names[matchIndex]
+            for encode in encodings:
+                matches = face_recognition.compare_faces(known_encodings, encode)
+                face_distances = face_recognition.face_distance(known_encodings, encode)
+                if len(face_distances) > 0:
+                    match_index = np.argmin(face_distances)
+                    if matches[match_index]:
+                        name = student_names[match_index]
                         mark_attendance(name)
                         st.success(f"✅ Attendance marked for {name}")
                     else:
                         st.error("❌ Face not recognized!")
-            # Optional: show uploaded image
             st.image(image, caption="Uploaded Image", use_column_width=True)
 
 # --- View attendance ---
