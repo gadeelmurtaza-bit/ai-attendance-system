@@ -4,34 +4,29 @@ import os
 DB_PATH = "database/attendance.db"
 
 def init_db():
-    # Create directory if missing
     os.makedirs("database", exist_ok=True)
-
-    # Create DB file if missing
     if not os.path.exists(DB_PATH):
         open(DB_PATH, "w").close()
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # Students table
     c.execute("""
         CREATE TABLE IF NOT EXISTS students (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            image_path TEXT NOT NULL
+            name TEXT,
+            image_path TEXT,
+            embedding BLOB
         )
     """)
 
-    # Attendance table
     c.execute("""
         CREATE TABLE IF NOT EXISTS attendance (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             student_id INTEGER,
             date TEXT,
             time TEXT,
-            status TEXT,
-            FOREIGN KEY (student_id) REFERENCES students(id)
+            status TEXT
         )
     """)
 
@@ -39,10 +34,13 @@ def init_db():
     conn.close()
 
 
-def add_student(name, image_path):
+def add_student(name, img_path, embedding):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO students (name, image_path) VALUES (?, ?)", (name, image_path))
+    c.execute(
+        "INSERT INTO students (name, image_path, embedding) VALUES (?, ?, ?)",
+        (name, img_path, embedding.tobytes())
+    )
     conn.commit()
     conn.close()
 
@@ -50,7 +48,7 @@ def add_student(name, image_path):
 def fetch_students():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT * FROM students")
+    c.execute("SELECT id, name, image_path, embedding FROM students")
     rows = c.fetchall()
     conn.close()
     return rows
@@ -73,7 +71,7 @@ def get_attendance():
     c.execute("""
         SELECT students.name, attendance.date, attendance.time, attendance.status
         FROM attendance
-        JOIN students ON students.id = attendance.student_id
+        JOIN students ON attendance.student_id = students.id
     """)
     rows = c.fetchall()
     conn.close()
