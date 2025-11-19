@@ -1,7 +1,7 @@
 streamlit
-opencv-python-headless
-deepface
+opencv-python-headless==4.7.0.72
+deepface==0.0.79
 pandas
 numpy
-tensorflow
+tensorflow==2.12.0
 gdown
