@@ -1,6 +1,6 @@
 import streamlit as st
 from PIL import Image
-import face_recognition
+from deepface import DeepFace
 import numpy as np
 import pandas as pd
 import os
@@ -15,19 +15,14 @@ if not os.path.exists('students_images'):
 if not os.path.exists('attendance.csv'):
     pd.DataFrame(columns=['Name', 'Date', 'Time']).to_csv('attendance.csv', index=False)
 
-# --- Load student images and encode ---
-images = []
+# --- Load student images ---
 student_names = []
+student_encodings = {}
 
 for file in os.listdir('students_images'):
-    img = Image.open(f'students_images/{file}')
-    img_array = np.array(img)
-    encoding = face_recognition.face_encodings(img_array)
-    if encoding:
-        images.append(encoding[0])
-        student_names.append(os.path.splitext(file)[0].upper())
-
-known_encodings = images
+    img_path = f'students_images/{file}'
+    student_names.append(os.path.splitext(file)[0].upper())
+    student_encodings[os.path.splitext(file)[0].upper()] = img_path
 
 # --- Attendance marking function ---
 def mark_attendance(name):
@@ -52,29 +47,30 @@ if choice == "Upload Student Images":
             image.save(f'students_images/{file.name}')
         st.success("✅ Images uploaded successfully! Refresh the app to load new students.")
 
-# --- Mark attendance from uploaded photo ---
+# --- Mark attendance ---
 elif choice == "Mark Attendance":
     uploaded_file = st.file_uploader("Upload a student photo to mark attendance", type=['jpg','jpeg','png'])
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
-        img_array = np.array(image)
-        encodings = face_recognition.face_encodings(img_array)
-        if len(encodings) == 0:
-            st.warning("No face detected in the uploaded image!")
-        else:
-            for encode in encodings:
-                matches = face_recognition.compare_faces(known_encodings, encode)
-                face_distances = face_recognition.face_distance(known_encodings, encode)
-                if len(face_distances) > 0:
-                    match_index = np.argmin(face_distances)
-                    if matches[match_index]:
-                        name = student_names[match_index]
-                        mark_attendance(name)
-                        st.success(f"✅ Attendance marked for {name}")
-                    else:
-                        st.error("❌ Face not recognized!")
-            st.image(image, caption="Uploaded Image", use_column_width=True)
+        st.image(image, caption="Uploaded Image", use_column_width=True)
+        matches = []
 
+        # Compare uploaded image with all student images
+        for name, path in student_encodings.items():
+            try:
+                result = DeepFace.verify(img1_path=np.array(image), img2_path=path, enforce_detection=False)
+                if result["verified"]:
+                    matches.append(name)
+            except:
+                continue
+
+        if matches:
+            for name in matches:
+                mark_attendance(name)
+                st.success(f"✅ Attendance marked for {name}")
+        else:
+            st.error("❌ No matching student found!")
+            
 # --- View attendance ---
 elif choice == "View Attendance":
     st.subheader("Attendance Records")
