@@ -1,88 +1,104 @@
 import streamlit as st
-from PIL import Image
-from deepface import DeepFace
+import cv2
 import numpy as np
-import pandas as pd
 import os
 from datetime import datetime
+import pandas as pd
+import face_recognition
 
-st.set_page_config(page_title="AI Attendance System", layout="wide")
-st.title("📸 AI Attendance System")
+from db import init_db, add_student, fetch_students, record_attendance, get_attendance
 
-# --- Auto-create folders/files ---
-if not os.path.exists('students_images'):
-    os.makedirs('students_images')
-if not os.path.exists('attendance.csv'):
-    pd.DataFrame(columns=['Name', 'Date', 'Time']).to_csv('attendance.csv', index=False)
+st.set_page_config(page_title="AI Attendance PRO", layout="wide")
 
-# --- Load student images ---
-student_names = []
-student_encodings = {}
+init_db()
 
-for file in os.listdir('students_images'):
-    img_path = f'students_images/{file}'
-    student_names.append(os.path.splitext(file)[0].upper())
-    student_encodings[os.path.splitext(file)[0].upper()] = img_path
+PASSWORD = "admin123"
 
-# --- Attendance marking function ---
-def mark_attendance(name):
-    df = pd.read_csv('attendance.csv')
-    now = datetime.now()
-    date_str = now.strftime('%Y-%m-%d')
-    time_str = now.strftime('%H:%M:%S')
-    if not ((df['Name'] == name) & (df['Date'] == date_str)).any():
-        df = pd.concat([df, pd.DataFrame([[name, date_str, time_str]], columns=['Name', 'Date', 'Time'])])
-        df.to_csv('attendance.csv', index=False)
+# ----------------------------------------------------
+# SIDEBAR MENU
+# ----------------------------------------------------
+st.sidebar.title("🔐 Admin Login")
+password = st.sidebar.text_input("Enter Password", type="password")
 
-# --- Sidebar Menu ---
-menu = ["Upload Student Images", "Mark Attendance", "View Attendance"]
-choice = st.sidebar.selectbox("Menu", menu)
+if password != PASSWORD:
+    st.warning("Enter correct admin password to access system")
+    st.stop()
 
-# --- Upload student images ---
-if choice == "Upload Student Images":
-    uploaded_files = st.file_uploader("Upload Student Images", accept_multiple_files=True, type=['jpg','jpeg','png'])
-    if uploaded_files:
-        for file in uploaded_files:
-            image = Image.open(file)
-            image.save(f'students_images/{file.name}')
-        st.success("✅ Images uploaded successfully! Refresh the app to load new students.")
+st.sidebar.success("Logged in as Admin")
+menu = st.sidebar.radio("Menu", ["Register Student", "Attendance", "Dashboard"])
 
-# --- Mark attendance ---
-elif choice == "Mark Attendance":
-    uploaded_file = st.file_uploader("Upload a student photo to mark attendance", type=['jpg','jpeg','png'])
-    if uploaded_file is not None:
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded Image", use_column_width=True)
-        matches = []
+# ----------------------------------------------------
+# REGISTER STUDENT
+# ----------------------------------------------------
+if menu == "Register Student":
+    st.title("🧑‍🎓 Register New Student")
 
-        # Compare uploaded image with all student images
-        for name, path in student_encodings.items():
-            try:
-                result = DeepFace.verify(img1_path=np.array(image), img2_path=path, enforce_detection=False)
-                if result["verified"]:
-                    matches.append(name)
-            except:
-                continue
+    name = st.text_input("Student Name")
+    img_file = st.file_uploader("Upload Student Photo", type=["jpg", "jpeg", "png"])
 
-        if matches:
-            for name in matches:
-                mark_attendance(name)
-                st.success(f"✅ Attendance marked for {name}")
-        else:
-            st.error("❌ No matching student found!")
-            
-# --- View attendance ---
-elif choice == "View Attendance":
-    st.subheader("Attendance Records")
-    df = pd.read_csv('attendance.csv')
-    if df.empty:
-        st.info("No attendance records yet.")
-    else:
-        st.dataframe(df)
-        all_students = [os.path.splitext(f)[0].upper() for f in os.listdir('students_images')]
-        today = datetime.now().strftime('%Y-%m-%d')
-        present_today = df[df['Date'] == today]['Name'].tolist()
-        absent_today = [s for s in all_students if s not in present_today]
+    if img_file and name:
+        image_path = f"student_images/{name}.jpg"
+        with open(image_path, "wb") as f:
+            f.write(img_file.getbuffer())
 
-        st.success(f"Present Today: {', '.join(present_today) if present_today else 'None'}")
-        st.warning(f"Absent Today: {', '.join(absent_today) if absent_today else 'None'}")
+        add_student(name, image_path)
+        st.success(f"Student '{name}' registered!")
+
+# ----------------------------------------------------
+# ATTENDANCE MARKING
+# ----------------------------------------------------
+elif menu == "Attendance":
+    st.title("📷 Mark Attendance")
+
+    students = fetch_students()
+    known_encodings = []
+    known_names = []
+
+    # Load encodings
+    for stu in students:
+        img = face_recognition.load_image_file(stu[2])
+        enc = face_recognition.face_encodings(img)
+
+        if enc:
+            known_encodings.append(enc[0])
+            known_names.append(stu)
+
+    camera = st.camera_input("Take picture")
+
+    if camera:
+        img = camera.getvalue()
+        nparr = np.frombuffer(img, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        faces = face_recognition.face_encodings(rgb)
+
+        for face in faces:
+            matches = face_recognition.compare_faces(known_encodings, face)
+            dist = face_recognition.face_distance(known_encodings, face)
+
+            idx = np.argmin(dist)
+
+            if matches[idx]:
+                stu_id = known_names[idx][0]
+                stu_name = known_names[idx][1]
+
+                now = datetime.now()
+                record_attendance(stu_id, now.strftime("%Y-%m-%d"), now.strftime("%H:%M"), "Present")
+
+                st.success(f"Attendance Marked: {stu_name}")
+            else:
+                st.error("Unknown face detected!")
+
+# ----------------------------------------------------
+# DASHBOARD
+# ----------------------------------------------------
+elif menu == "Dashboard":
+    st.title("📊 Attendance Dashboard")
+
+    data = get_attendance()
+    df = pd.DataFrame(data, columns=["Name", "Date", "Time", "Status"])
+    st.dataframe(df)
+
+    st.subheader("Attendance Count")
+    st.bar_chart(df["Name"].value_counts())
