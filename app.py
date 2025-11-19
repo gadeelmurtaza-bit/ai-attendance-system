@@ -8,7 +8,7 @@ import zipfile
 import insightface
 from insightface.app import FaceAnalysis
 
-from db import add_student, init_db   # Your DB functions
+from db import add_student, init_db  # Your DB functions
 
 # -----------------------------------------
 # Initialize Database
@@ -24,6 +24,11 @@ model.prepare(ctx_id=0)
 st.success("Face Recognition Model Loaded!")
 
 # -----------------------------------------
+# Create folder for student images if not exists
+# -----------------------------------------
+os.makedirs("student_images", exist_ok=True)
+
+# -----------------------------------------
 # Background Section
 # -----------------------------------------
 st.markdown(
@@ -35,7 +40,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-
 # -----------------------------------------
 # Function to get Face Embedding
 # -----------------------------------------
@@ -45,7 +49,6 @@ def get_embedding(img: Image.Image):
     if len(faces) == 0:
         return None
     return faces[0].embedding
-
 
 # -----------------------------------------
 # Sidebar Navigation
@@ -62,7 +65,7 @@ if menu == "Bulk Registration":
     photo_zip = st.file_uploader("Upload ZIP of Photos", type=["zip"])
 
     if uploaded_file and photo_zip:
-        # Extract ZIP
+        # Extract ZIP to student_images folder
         with zipfile.ZipFile(BytesIO(photo_zip.read())) as zip_ref:
             zip_ref.extractall("student_images/")
 
@@ -100,7 +103,6 @@ if menu == "Bulk Registration":
 
         st.success("Bulk registration completed!")
 
-
 # =========================================
 # 2️⃣ MANUAL STUDENT REGISTRATION
 # =========================================
@@ -121,13 +123,15 @@ elif menu == "Add Student":
             if embedding is None:
                 st.error("No face detected! Try another photo.")
             else:
+                # Ensure folder exists
+                os.makedirs("student_images", exist_ok=True)
+
                 # Save image
                 save_path = f"student_images/{roll}.jpg"
                 img.save(save_path)
 
                 add_student(f"{name} ({roll})", save_path, embedding.astype(np.float32))
                 st.success(f"Student Registered: {name} ({roll})")
-
 
 # =========================================
 # 3️⃣ ATTENDANCE
@@ -146,12 +150,6 @@ elif menu == "Take Attendance":
         if live_embedding is None:
             st.error("No face detected!")
         else:
-            # 🔥 Call your DB search function here
-            # Example: matched_student = find_best_match(live_embedding)
-
+            # 🔥 Add your face matching function here
             st.info("Matching face with database...")
             st.warning("⚠️ Matching function not yet connected.")
-
-            # Add your own matching logic here.
-
-
