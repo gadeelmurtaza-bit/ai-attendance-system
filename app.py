@@ -1,116 +1,123 @@
 import streamlit as st
-import os
-from PIL import Image
 import numpy as np
-import pandas as pd
+from PIL import Image
 from datetime import datetime
-from deepface import DeepFace
+import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
+
+import insightface
+from insightface.app import FaceAnalysis
 
 from db import init_db, add_student, fetch_students, record_attendance, get_attendance
 
 st.set_page_config(page_title="AI Attendance System", layout="wide")
 
-# Initialize DB
+# Load DB
 init_db()
+
+# Load face model
+model = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+model.prepare(ctx_id=0)
 
 PASSWORD = "admin123"
 
-# Sidebar Login
-st.sidebar.title("🔐 Admin Login")
-password = st.sidebar.text_input("Enter Password", type="password")
+st.sidebar.title("Login")
+password = st.sidebar.text_input("Enter admin password", type="password")
 
 if password != PASSWORD:
-    st.warning("Enter correct admin password")
+    st.warning("Incorrect Password")
     st.stop()
 
 menu = st.sidebar.radio("Menu", ["Register Student", "Attendance", "Dashboard"])
-st.sidebar.success("Logged in Successfully!")
-
-# -------------------------------------------
-# Face Verification using DeepFace
-# -------------------------------------------
-def verify_face(img1_path, img2_path):
-    try:
-        result = DeepFace.verify(
-            img1_path=img1_path,
-            img2_path=img2_path,
-            enforce_detection=False
-        )
-        return result["verified"]
-    except:
-        return False
 
 
 # -------------------------------------------
-# Register Student
+# Generate embedding
+# -------------------------------------------
+def get_embedding(img: Image.Image):
+    np_img = np.array(img)
+    faces = model.get(np_img)
+
+    if len(faces) == 0:
+        return None
+
+    return faces[0].embedding
+
+
+# -------------------------------------------
+# Register student
 # -------------------------------------------
 if menu == "Register Student":
-    st.title("🧑‍🎓 Register New Student")
+    st.title("Register New Student")
 
     name = st.text_input("Student Name")
-    uploaded_img = st.file_uploader("Upload Student Photo", type=["jpg", "png", "jpeg"])
+    uploaded = st.file_uploader("Upload Student Photo", type=["jpg", "jpeg", "png"])
 
-    if uploaded_img and name:
-        os.makedirs("student_images", exist_ok=True)
+    if uploaded and name:
+        img = Image.open(uploaded)
+        embedding = get_embedding(img)
+
+        if embedding is None:
+            st.error("No face detected. Try another image.")
+            st.stop()
 
         save_path = f"student_images/{name}.jpg"
-        with open(save_path, "wb") as f:
-            f.write(uploaded_img.getbuffer())
+        img.save(save_path)
 
-        add_student(name, save_path)
-        st.success(f"Student '{name}' registered!")
+        add_student(name, save_path, embedding.astype(np.float32))
+        st.success(f"{name} registered successfully!")
 
 
 # -------------------------------------------
-# Attendance
+# Mark Attendance
 # -------------------------------------------
 elif menu == "Attendance":
-    st.title("📷 Mark Attendance")
+    st.title("Mark Attendance")
 
-    students = fetch_students()
+    capture = st.camera_input("Take a picture")
 
-    captured = st.camera_input("Take a picture to mark attendance")
+    if capture:
+        img = Image.open(capture)
+        embed = get_embedding(img)
 
-    if captured:
-        img = Image.open(captured)
-        os.makedirs("temp", exist_ok=True)
+        if embed is None:
+            st.error("No face detected!")
+            st.stop()
 
-        user_img_path = "temp/user.jpg"
-        img.save(user_img_path)
+        students = fetch_students()
 
-        marked = False
+        best_match = None
+        best_score = -1
 
-        for stu in students:
-            student_id, student_name, stored_path = stu
+        for (sid, name, path, emb_bytes) in students:
+            stu_emb = np.frombuffer(emb_bytes, dtype=np.float32)
+            score = cosine_similarity([embed], [stu_emb])[0][0]
 
-            if verify_face(user_img_path, stored_path):
-                now = datetime.now()
-                record_attendance(
-                    student_id,
-                    now.strftime("%Y-%m-%d"),
-                    now.strftime("%H:%M:%S"),
-                    "Present"
-                )
+            if score > best_score:
+                best_score = score
+                best_match = (sid, name)
 
-                st.success(f"Attendance marked for **{student_name}**")
-                marked = True
-                break
-
-        if not marked:
-            st.error("Face not recognized!")
+        # Similarity threshold
+        if best_score >= 0.45:
+            sid, name = best_match
+            now = datetime.now()
+            record_attendance(sid, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), "Present")
+            st.success(f"Attendance marked for **{name}** (match={best_score:.2f})")
+        else:
+            st.error("Face not recognized.")
 
 
 # -------------------------------------------
 # Dashboard
 # -------------------------------------------
 elif menu == "Dashboard":
-    st.title("📊 Attendance Dashboard")
+    st.title("Attendance Dashboard")
 
     data = get_attendance()
     df = pd.DataFrame(data, columns=["Name", "Date", "Time", "Status"])
 
     st.dataframe(df)
 
-    st.subheader("Attendance Count")
     if not df.empty:
+        st.subheader("Attendance Count")
         st.bar_chart(df["Name"].value_counts())
