@@ -2,5 +2,5 @@ streamlit
 opencv-python-headless
 numpy
 pandas
-face_recognition
-sqlite3-binary
+deepface
+Pillow
