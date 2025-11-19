@@ -47,9 +47,10 @@ def mark_attendance(name):
         df.to_csv('attendance.csv', index=False)
 
 # --- Sidebar Menu ---
-menu = ["Start Webcam", "View Attendance", "Upload Student Images"]
+menu = ["Upload Student Images", "Mark Attendance", "View Attendance"]
 choice = st.sidebar.selectbox("Menu", menu)
 
+# --- Upload student images ---
 if choice == "Upload Student Images":
     uploaded_files = st.file_uploader("Upload Student Images", accept_multiple_files=True, type=['jpg','jpeg','png'])
     if uploaded_files:
@@ -58,40 +59,35 @@ if choice == "Upload Student Images":
             image.save(f'students_images/{file.name}')
         st.success("Images uploaded successfully! Refresh the app to load new students.")
 
-elif choice == "Start Webcam":
-    stframe = st.empty()
-    run = st.checkbox('Start Webcam')
-    cap = cv2.VideoCapture(0)
+# --- Mark attendance from uploaded photo ---
+elif choice == "Mark Attendance":
+    uploaded_file = st.file_uploader("Upload a student photo to mark attendance", type=['jpg','jpeg','png'])
+    if uploaded_file is not None:
+        image = Image.open(uploaded_file)
+        frame = np.array(image)
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-    while run:
-        ret, frame = cap.read()
-        if not ret:
-            st.write("Failed to access webcam")
-            break
+        facesCurFrame = face_recognition.face_locations(frame)
+        encodesCurFrame = face_recognition.face_encodings(frame, facesCurFrame)
 
-        imgS = cv2.resize(frame, (0,0), None, 0.25,0.25)
-        imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
+        if len(encodesCurFrame) == 0:
+            st.warning("No face detected in the uploaded image!")
+        else:
+            for encodeFace, faceLoc in zip(encodesCurFrame, facesCurFrame):
+                matches = face_recognition.compare_faces(known_encodings, encodeFace)
+                faceDis = face_recognition.face_distance(known_encodings, encodeFace)
+                if len(faceDis) > 0:
+                    matchIndex = np.argmin(faceDis)
+                    if matches[matchIndex]:
+                        name = student_names[matchIndex]
+                        mark_attendance(name)
+                        st.success(f"✅ Attendance marked for {name}")
+                    else:
+                        st.error("❌ Face not recognized!")
+            # Optional: show uploaded image
+            st.image(image, caption="Uploaded Image", use_column_width=True)
 
-        facesCurFrame = face_recognition.face_locations(imgS)
-        encodesCurFrame = face_recognition.face_encodings(imgS, facesCurFrame)
-
-        for encodeFace, faceLoc in zip(encodesCurFrame, facesCurFrame):
-            matches = face_recognition.compare_faces(known_encodings, encodeFace)
-            faceDis = face_recognition.face_distance(known_encodings, encodeFace)
-            if len(faceDis) > 0:
-                matchIndex = np.argmin(faceDis)
-                if matches[matchIndex]:
-                    name = student_names[matchIndex]
-                    mark_attendance(name)
-                    y1,x2,y2,x1 = faceLoc
-                    y1, x2, y2, x1 = y1*4, x2*4, y2*4, x1*4
-                    cv2.rectangle(frame, (x1,y1), (x2,y2), (0,255,0), 2)
-                    cv2.putText(frame, name, (x1,y1-10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
-
-        stframe.image(frame, channels="BGR")
-
-    cap.release()
-
+# --- View attendance ---
 elif choice == "View Attendance":
     st.subheader("Attendance Records")
     df = pd.read_csv('attendance.csv')
