@@ -4,7 +4,7 @@ import os
 DB_PATH = "database/attendance.db"
 
 def init_db():
-    # Create folder if missing
+    # Create directory if missing
     os.makedirs("database", exist_ok=True)
 
     # Create DB file if missing
@@ -14,29 +14,35 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    c.execute('''CREATE TABLE IF NOT EXISTS students (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        image_path TEXT NOT NULL
-    )''')
+    # Students table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS students (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            image_path TEXT NOT NULL
+        )
+    """)
 
-    c.execute('''CREATE TABLE IF NOT EXISTS attendance (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        student_id INTEGER,
-        date TEXT,
-        time TEXT,
-        status TEXT,
-        FOREIGN KEY(student_id) REFERENCES students(id)
-    )''')
+    # Attendance table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER,
+            date TEXT,
+            time TEXT,
+            status TEXT,
+            FOREIGN KEY (student_id) REFERENCES students(id)
+        )
+    """)
 
     conn.commit()
     conn.close()
 
 
-def add_student(name, path):
+def add_student(name, image_path):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO students (name, image_path) VALUES (?, ?)", (name, path))
+    c.execute("INSERT INTO students (name, image_path) VALUES (?, ?)", (name, image_path))
     conn.commit()
     conn.close()
 
@@ -45,16 +51,18 @@ def fetch_students():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT * FROM students")
-    data = c.fetchall()
+    rows = c.fetchall()
     conn.close()
-    return data
+    return rows
 
 
 def record_attendance(student_id, date, time, status):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO attendance (student_id, date, time, status) VALUES (?, ?, ?, ?)",
-              (student_id, date, time, status))
+    c.execute(
+        "INSERT INTO attendance (student_id, date, time, status) VALUES (?, ?, ?, ?)",
+        (student_id, date, time, status)
+    )
     conn.commit()
     conn.close()
 
@@ -62,9 +70,11 @@ def record_attendance(student_id, date, time, status):
 def get_attendance():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("""SELECT students.name, attendance.date, attendance.time, attendance.status
-                 FROM attendance JOIN students
-                 ON attendance.student_id = students.id""")
+    c.execute("""
+        SELECT students.name, attendance.date, attendance.time, attendance.status
+        FROM attendance
+        JOIN students ON students.id = attendance.student_id
+    """)
     rows = c.fetchall()
     conn.close()
     return rows
